@@ -1,29 +1,26 @@
 package lintersdb
 
 import (
-	"fmt"
-	"path/filepath"
-	"plugin"
-
-	"github.com/spf13/viper"
-	"golang.org/x/tools/go/analysis"
+	"regexp"
 
 	"github.com/golangci/golangci-lint/pkg/config"
 	"github.com/golangci/golangci-lint/pkg/golinters"
-	"github.com/golangci/golangci-lint/pkg/golinters/goanalysis"
 	"github.com/golangci/golangci-lint/pkg/lint/linter"
 	"github.com/golangci/golangci-lint/pkg/logutils"
-	"github.com/golangci/golangci-lint/pkg/report"
 )
 
 type Manager struct {
-	nameToLCs map[string][]*linter.Config
-	cfg       *config.Config
-	log       logutils.Log
+	cfg *config.Config
+	log logutils.Log
+
+	nameToLCs     map[string][]*linter.Config
+	customLinters []*linter.Config
 }
 
 func NewManager(cfg *config.Config, log logutils.Log) *Manager {
 	m := &Manager{cfg: cfg, log: log}
+	m.customLinters = m.getCustomLinterConfigs()
+
 	nameToLCs := make(map[string][]*linter.Config)
 	for _, lc := range m.GetAllSupportedLinterConfigs() {
 		for _, name := range lc.AllNames() {
@@ -32,28 +29,7 @@ func NewManager(cfg *config.Config, log logutils.Log) *Manager {
 	}
 
 	m.nameToLCs = nameToLCs
-	return m
-}
 
-// WithCustomLinters loads private linters that are specified in the golangci config file.
-func (m *Manager) WithCustomLinters() *Manager {
-	if m.log == nil {
-		m.log = report.NewLogWrapper(logutils.NewStderrLog(logutils.DebugKeyEmpty), &report.Data{})
-	}
-	if m.cfg != nil {
-		for name, settings := range m.cfg.LintersSettings.Custom {
-			lc, err := m.loadCustomLinterConfig(name, settings)
-
-			if err != nil {
-				m.log.Errorf("Unable to load custom analyzer %s:%s, %v",
-					name,
-					settings.Path,
-					err)
-			} else {
-				m.nameToLCs[name] = append(m.nameToLCs[name], lc)
-			}
-		}
-	}
 	return m
 }
 
@@ -85,17 +61,6 @@ func (m Manager) allPresetsSet() map[string]bool {
 
 func (m Manager) GetLinterConfigs(name string) []*linter.Config {
 	return m.nameToLCs[name]
-}
-
-func enableLinterConfigs(lcs []*linter.Config, isEnabled func(lc *linter.Config) bool) []*linter.Config {
-	var ret []*linter.Config
-	for _, lc := range lcs {
-		lc := lc
-		lc.EnabledByDefault = isEnabled(lc)
-		ret = append(ret, lc)
-	}
-
-	return ret
 }
 
 //nolint:funlen
@@ -264,7 +229,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 		}
 
 		if gocriticCfg != nil {
-			gocriticCfg.Go = m.cfg.Run.Go
+			gocriticCfg.Go = trimGoVersion(m.cfg.Run.Go)
 		}
 
 		if gofumptCfg != nil && gofumptCfg.LangVersion == "" {
@@ -272,24 +237,27 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 		}
 
 		if staticcheckCfg != nil && staticcheckCfg.GoVersion == "" {
-			staticcheckCfg.GoVersion = m.cfg.Run.Go
+			staticcheckCfg.GoVersion = trimGoVersion(m.cfg.Run.Go)
 		}
 		if gosimpleCfg != nil && gosimpleCfg.GoVersion == "" {
-			gosimpleCfg.GoVersion = m.cfg.Run.Go
+			gosimpleCfg.GoVersion = trimGoVersion(m.cfg.Run.Go)
 		}
 		if stylecheckCfg != nil && stylecheckCfg.GoVersion != "" {
-			stylecheckCfg.GoVersion = m.cfg.Run.Go
+			stylecheckCfg.GoVersion = trimGoVersion(m.cfg.Run.Go)
 		}
 		if unusedCfg != nil && unusedCfg.GoVersion == "" {
-			unusedCfg.GoVersion = m.cfg.Run.Go
+			unusedCfg.GoVersion = trimGoVersion(m.cfg.Run.Go)
 		}
 	}
 
 	const megacheckName = "megacheck"
 
+	var linters []*linter.Config
+	linters = append(linters, m.customLinters...)
+
 	// The linters are sorted in the alphabetical order (case-insensitive).
 	// When a new linter is added the version in `WithSince(...)` must be the next minor version of golangci-lint.
-	lcs := []*linter.Config{
+	linters = append(linters,
 		linter.NewConfig(golinters.NewAsasalint(asasalintCfg)).
 			WithSince("1.47.0").
 			WithPresets(linter.PresetBugs).
@@ -370,6 +338,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/charithe/durationcheck"),
 
 		linter.NewConfig(golinters.NewErrcheck(errcheckCfg)).
+			WithEnabledByDefault().
 			WithSince("v1.0.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetBugs, linter.PresetError).
@@ -566,6 +535,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithAlternativeNames("gas"),
 
 		linter.NewConfig(golinters.NewGosimple(gosimpleCfg)).
+			WithEnabledByDefault().
 			WithSince("v1.20.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetStyle).
@@ -579,6 +549,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/xen0n/gosmopolitan"),
 
 		linter.NewConfig(golinters.NewGovet(govetCfg)).
+			WithEnabledByDefault().
 			WithSince("v1.0.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetBugs, linter.PresetMetaLinter).
@@ -603,6 +574,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/julz/importas"),
 
 		linter.NewConfig(golinters.NewIneffassign()).
+			WithEnabledByDefault().
 			WithSince("v1.0.0").
 			WithPresets(linter.PresetUnused).
 			WithURL("https://github.com/gordonklaus/ineffassign"),
@@ -774,6 +746,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/ryanrolds/sqlclosecheck"),
 
 		linter.NewConfig(golinters.NewStaticcheck(staticcheckCfg)).
+			WithEnabledByDefault().
 			WithSince("v1.0.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetBugs, linter.PresetMetaLinter).
@@ -833,6 +806,8 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/moricho/tparallel"),
 
 		linter.NewConfig(golinters.NewTypecheck()).
+			WithInternal().
+			WithEnabledByDefault().
 			WithSince("v1.3.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetBugs).
@@ -851,6 +826,7 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithURL("https://github.com/mvdan/unparam"),
 
 		linter.NewConfig(golinters.NewUnused(unusedCfg)).
+			WithEnabledByDefault().
 			WithSince("v1.20.0").
 			WithLoadForGoAnalysis().
 			WithPresets(linter.PresetUnused).
@@ -900,31 +876,20 @@ func (m Manager) GetAllSupportedLinterConfigs() []*linter.Config {
 			WithPresets(linter.PresetStyle).
 			WithURL("https://github.com/bombsimon/wsl"),
 
-		// nolintlint must be last because it looks at the results of all the previous linters for unused nolint directives
-		linter.NewConfig(golinters.NewNoLintLint(noLintLintCfg)).
-			WithSince("v1.26.0").
-			WithPresets(linter.PresetStyle).
-			WithURL("https://github.com/golangci/golangci-lint/blob/master/pkg/golinters/nolintlint/README.md"),
-
 		linter.NewConfig(golinters.NewZerologLint()).
 			WithSince("v1.53.0").
 			WithPresets(linter.PresetBugs).
 			WithLoadForGoAnalysis().
 			WithURL("https://github.com/ykadowak/zerologlint"),
-	}
 
-	enabledByDefault := map[string]bool{
-		golinters.NewGovet(nil).Name():                  true,
-		golinters.NewErrcheck(errcheckCfg).Name():       true,
-		golinters.NewStaticcheck(staticcheckCfg).Name(): true,
-		golinters.NewUnused(unusedCfg).Name():           true,
-		golinters.NewGosimple(gosimpleCfg).Name():       true,
-		golinters.NewIneffassign().Name():               true,
-		golinters.NewTypecheck().Name():                 true,
-	}
-	return enableLinterConfigs(lcs, func(lc *linter.Config) bool {
-		return enabledByDefault[lc.Name()]
-	})
+		// nolintlint must be last because it looks at the results of all the previous linters for unused nolint directives
+		linter.NewConfig(golinters.NewNoLintLint(noLintLintCfg)).
+			WithSince("v1.26.0").
+			WithPresets(linter.PresetStyle).
+			WithURL("https://github.com/golangci/golangci-lint/blob/master/pkg/golinters/nolintlint/README.md"),
+	)
+
+	return linters
 }
 
 func (m Manager) GetAllEnabledByDefaultLinters() []*linter.Config {
@@ -966,60 +931,20 @@ func (m Manager) GetAllLinterConfigsForPreset(p string) []*linter.Config {
 	return ret
 }
 
-// loadCustomLinterConfig loads the configuration of private linters.
-// Private linters are dynamically loaded from .so plugin files.
-func (m Manager) loadCustomLinterConfig(name string, settings config.CustomLinterSettings) (*linter.Config, error) {
-	analyzer, err := m.getAnalyzerPlugin(settings.Path)
-	if err != nil {
-		return nil, err
-	}
-	m.log.Infof("Loaded %s: %s", settings.Path, name)
-	customLinter := goanalysis.NewLinter(
-		name,
-		settings.Description,
-		analyzer.GetAnalyzers(),
-		nil).WithLoadMode(goanalysis.LoadModeTypesInfo)
-	linterConfig := linter.NewConfig(customLinter)
-	linterConfig.EnabledByDefault = true
-	linterConfig.IsSlow = false
-	linterConfig.WithURL(settings.OriginalURL)
-	return linterConfig, nil
-}
-
-type AnalyzerPlugin interface {
-	GetAnalyzers() []*analysis.Analyzer
-}
-
-// getAnalyzerPlugin loads a private linter as specified in the config file,
-// loads the plugin from a .so file, and returns the 'AnalyzerPlugin' interface
-// implemented by the private plugin.
-// An error is returned if the private linter cannot be loaded or the linter
-// does not implement the AnalyzerPlugin interface.
-func (m Manager) getAnalyzerPlugin(path string) (AnalyzerPlugin, error) {
-	if !filepath.IsAbs(path) {
-		// resolve non-absolute paths relative to config file's directory
-		configFilePath := viper.ConfigFileUsed()
-		absConfigFilePath, err := filepath.Abs(configFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("could not get absolute representation of config file path %q: %v", configFilePath, err)
-		}
-		path = filepath.Join(filepath.Dir(absConfigFilePath), path)
+// Trims the Go version to keep only M.m.
+// Since Go 1.21 the version inside the go.mod can be a patched version (ex: 1.21.0).
+// https://go.dev/doc/toolchain#versions
+// This a problem with staticcheck and gocritic.
+func trimGoVersion(v string) string {
+	if v == "" {
+		return ""
 	}
 
-	plug, err := plugin.Open(path)
-	if err != nil {
-		return nil, err
+	exp := regexp.MustCompile(`(\d\.\d+)\.\d+`)
+
+	if exp.MatchString(v) {
+		return exp.FindStringSubmatch(v)[1]
 	}
 
-	symbol, err := plug.Lookup("AnalyzerPlugin")
-	if err != nil {
-		return nil, err
-	}
-
-	analyzerPlugin, ok := symbol.(AnalyzerPlugin)
-	if !ok {
-		return nil, fmt.Errorf("plugin %s does not abide by 'AnalyzerPlugin' interface", path)
-	}
-
-	return analyzerPlugin, nil
+	return v
 }
