@@ -12,8 +12,6 @@ concurrency:
 jobs:
   docker-build:
     runs-on: ubuntu-latest
-    env:
-      BUILD: ${{ github.event.number }}
     steps:
       - name: Git clone
         uses: actions/checkout@v3
@@ -23,5 +21,8 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Docker build
         run: |
-          docker build -t ghcr.io/golang-cz/static-analysis-$BUILD .
-          docker push ghcr.io/vcilabs/static-analysis-$BUILD
+          PULL_REQUEST_ID=${{ github.event.number }}
+          export COMMIT="$(git log -1 --pretty=format:'%h')"
+          export VERSION="$(date -d @$(git log -n1 --format=%at) +'v%-y.%-m.%-d')-${COMMIT}${PULL_REQUEST_ID:+-PR-$PULL_REQUEST_ID}"
+          docker build -t ghcr.io/golang-cz/static-analysis:$VERSION .
+          docker push ghcr.io/golang-cz/static-analysis:$VERSION
