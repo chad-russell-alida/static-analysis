@@ -17,7 +17,9 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -buildmode=plugin -o wrap-
 FROM golang:1.21
 # related to https://github.com/golangci/golangci-lint/issues/3107
 ENV GOROOT /usr/local/go
-# don't place it into $GOPATH/bin because Drone mounts $GOPATH as volume
+# Set all directories as safe
+RUN git config --global --add safe.directory '*'
+
 COPY --from=builder /golangci/golangci-lint /usr/bin/
 COPY --from=builder /golangci/wrap-err-checker.so /usr/bin/
 CMD ["golangci-lint"]
