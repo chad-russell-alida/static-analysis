@@ -3,23 +3,19 @@ package analyzer
 import (
 	"go/ast"
 	"go/token"
+	"strings"
+
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
-	"strings"
-)
-
-const (
-	name = "wraperrchecker"
-	doc  = "Checks wrapping of errors"
 )
 
 func NewWrapErrChecker() *analysis.Analyzer {
 	n := newWrapErrChecker()
 
 	a := &analysis.Analyzer{
-		Name:     name,
-		Doc:      doc,
+		Name:     "wraperrchecker",
+		Doc:      "Checks wrapping of errors",
 		Run:      n.run,
 		Requires: []*analysis.Analyzer{inspect.Analyzer},
 	}
