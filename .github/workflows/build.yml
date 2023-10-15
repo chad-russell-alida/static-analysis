@@ -24,5 +24,6 @@ jobs:
           PULL_REQUEST_ID=${{ github.event.number }}
           export COMMIT="$(git log -1 --pretty=format:'%h')"
           export VERSION="$(date -d @$(git log -n1 --format=%at) +'v%-y.%-m.%-d')-${COMMIT}${PULL_REQUEST_ID:+-PR-$PULL_REQUEST_ID}"
-          docker build -t ghcr.io/golang-cz/static-analysis:$VERSION .
+          docker build -t ghcr.io/golang-cz/static-analysis:$VERSION -t ghcr.io/golang-cz/static-analysis:latest .
           docker push ghcr.io/golang-cz/static-analysis:$VERSION
+          docker push ghcr.io/golang-cz/static-analysis:latest
