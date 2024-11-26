@@ -2,7 +2,7 @@
 
 ### Using custom golangci plugin
 - Documentation reference https://golangci-lint.run/contributing/new-linters/#how-to-add-a-private-linter-to-golangci-lint
-- To add a custom private plugin the golangci must be build with `CGO_ENABLED=1` flag
+- To add a custom private plugin the golangci must be build with `CGO_ENABLED=1` flag 
 - It is required to have own build golangci binary, because this way we ensure the same used dependencies for building
 the our own custom plugin and the golangci. Without it we would not be able to plug-in our custom plugin
 - Once we have a ready binary we can built `cmd/plugin` `CGO_ENABLED=1 go build -buildmode=plugin -o wraperrchecker.so cmd/plugin/plugin.go`
