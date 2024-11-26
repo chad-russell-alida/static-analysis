@@ -1,6 +1,6 @@
 module github.com/golang-cz/static-analysis
 
-go 1.21
+go 1.23
 
 require (
 	github.com/golangci/golangci-lint v1.54.2
