@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/golang-cz/static-analysis/pkg/analyzer"
+	"github.com/chad-russell-alida/static-analysis/pkg/analyzer"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

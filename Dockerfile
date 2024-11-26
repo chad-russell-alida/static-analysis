@@ -1,7 +1,7 @@
 # Based on https://github.com/golangci/golangci-lint/blob/master/build/Dockerfile
 
 # stage 1 building the code
-FROM golang:1.21 as builder
+FROM golang:1.23 as builder
 
 COPY / /golangci
 WORKDIR /golangci
@@ -14,7 +14,7 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X main.version=master -X m
 RUN CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -buildmode=plugin -o wrap-err-checker.so ./cmd/plugin/plugin.go
 
 # stage 2
-FROM golang:1.21
+FROM golang:1.23
 # related to https://github.com/golangci/golangci-lint/issues/3107
 ENV GOROOT /usr/local/go
 # Set all directories as safe
