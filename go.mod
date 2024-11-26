@@ -1,4 +1,4 @@
-module github.com/golang-cz/static-analysis
+module github.com/chad-russell-alida/static-analysis
 
 go 1.23
 
